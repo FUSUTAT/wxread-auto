@@ -6,54 +6,60 @@ concurrency:
 
 on:
   schedule:
-    # 北京时间每天 09:00（UTC 01:00）。叠加脚本内的 0~40 分钟随机等待
-    - cron: '0 1 * * *'
-    # 备用触发：北京时间每天 23:20，仅当当天主任务失败时补跑
-    - cron: '20 15 * * *'
+    # 北京时间每天 06:00 启动（UTC 22:00 前一天），由 multi_run.py 在 06:00-10:00 内分成 3~5 段随机执行
+    - cron: '0 22 * * *'
+    # 备用触发：北京时间每天 11:00，仅当过去 14 小时内没有成功的定时任务时补跑
+    - cron: '0 3 * * *'
   workflow_dispatch:
     inputs:
       read_num:
-        description: '阅读次数（可留空；留空则按 READ_NUM 变量 ±10 随机）'
+        description: '阅读次数（留空则走分时段随机排程；填数字则立刻单段执行该次数）'
         required: false
         default: ''
 
 jobs:
   read:
     runs-on: ubuntu-22.04
-    timeout-minutes: 160
+    # 排程最长跨到 10:10 左右，留足余量
+    timeout-minutes: 280
+    permissions:
+      actions: read
+      contents: read
     steps:
-      - name: 备用触发时先判断当天是否已成功
+      - name: 备用触发时先判断近 14 小时是否已成功
         id: guard
-        if: github.event.schedule == '20 15 * * *'
+        if: github.event.schedule == '0 3 * * *'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          today=$(TZ=Asia/Shanghai date +%Y-%m-%d)
-          ok=$(gh run list --workflow=wxread.yml --status=success --limit=30 \
-               --json createdAt -q "[.[] | select(.createdAt | startswith(\"$today\"))] | length" || echo 0)
+          since=$(date -u -d '14 hours ago' +%s)
+          ok=$(gh run list --workflow=wxread.yml --status=success --limit=40 \
+               --json createdAt,event \
+               -q "[.[] | select(.event==\"schedule\" and ((.createdAt|fromdateiso8601) > $since))] | length" || echo 0)
+          echo "近 14 小时成功定时跑批次数：${ok:-0}"
           if [ "${ok:-0}" -gt 0 ]; then
-            echo "当天已有成功记录，跳过补跑"
+            echo "当天主任务已成功，跳过补跑"
             echo "skip=true" >> "$GITHUB_OUTPUT"
           else
             echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
 
       - uses: actions/checkout@v4
-        if: github.event.schedule != '20 15 * * *' || steps.guard.outputs.skip != 'true'
+        if: github.event.schedule != '0 3 * * *' || steps.guard.outputs.skip != 'true'
 
       - uses: actions/setup-python@v5
-        if: github.event.schedule != '20 15 * * *' || steps.guard.outputs.skip != 'true'
+        if: github.event.schedule != '0 3 * * *' || steps.guard.outputs.skip != 'true'
         with:
           python-version: '3.11'
 
       - name: 安装依赖
-        if: github.event.schedule != '20 15 * * *' || steps.guard.outputs.skip != 'true'
+        if: github.event.schedule != '0 3 * * *' || steps.guard.outputs.skip != 'true'
         run: |
           python -m pip install --upgrade pip
           pip install requests
 
-      - name: 随机延迟后执行阅读任务
-        if: github.event.schedule != '20 15 * * *' || steps.guard.outputs.skip != 'true'
+      - name: 分时段随机执行阅读任务
+        if: github.event.schedule != '0 3 * * *' || steps.guard.outputs.skip != 'true'
         env:
           WXREAD_CURL_BASH: ${{ secrets.WXREAD_CURL_BASH }}
           BASE_NUM: ${{ vars.READ_NUM }}
@@ -65,23 +71,14 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            delay=0
-          else
-            delay=$(( RANDOM % 2400 ))
-          fi
-          echo "随机等待 ${delay} 秒（$(( delay / 60 )) 分钟）后开始"
-          sleep $delay
-          base=${BASE_NUM:-140}
           manual="${{ github.event.inputs.read_num }}"
-          if [ -n "$manual" ]; then
-            num=$manual
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "$manual" ]; then
+            echo "手动触发，单段执行 $manual 次（不等待随机排程）"
+            READ_NUM=$manual python main.py
           else
-            num=$(( base - 10 + RANDOM % 21 ))
+            echo "分时段随机执行：06:00-10:00 窗口内 3~5 段，合计 70~80 分钟"
+            python multi_run.py --start-hour 6 --end-hour 10
           fi
-          if [ "$num" -lt 1 ]; then num=1; fi
-          echo "本次阅读 ${num} 次，约 $(( num / 2 )) 分钟"
-          READ_NUM=$num python main.py
 
   keepalive:
     name: 保活（防止定时任务因仓库60天无活动被关闭）
