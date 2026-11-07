@@ -9,7 +9,7 @@ import requests
 import urllib.parse
 from push import push
 from log_utils import setup_logging
-from config import data, headers, cookies, READ_NUM, PUSH_METHOD, book, chapter
+from config import data, headers, cookies, READ_NUM, PUSH_METHOD, book, chapter, USE_CURL_BOOK
 
 
 # 加密盐及其它默认值
@@ -103,14 +103,24 @@ def refresh_cookie(strict=True):
 refresh_cookie(strict=False)
 index = 1
 total_sec = 0
+base_co = data.get('co', 0)
+offset_drift = 0
 lastTime = int(time.time()) - 30
 synckey_repair_attempts = 0
 logging.info(f"一共需要阅读 {READ_NUM} 次。")
 
 while index <= READ_NUM:
     data.pop('s')
-    data['b'] = random.choice(book)
-    data['c'] = random.choice(chapter)
+    if USE_CURL_BOOK:
+        # 固定书/章节为 curl 中的真实阅读位置，每次略微后移模拟翻页；
+        # 漂移超过 800 字就回到起点附近，避免越过章节末尾被服务端拒绝
+        offset_drift += random.randint(3, 9)
+        if offset_drift > 800:
+            offset_drift = random.randint(0, 40)
+        data['co'] = base_co + offset_drift
+    else:
+        data['b'] = random.choice(book)
+        data['c'] = random.choice(chapter)
     thisTime = int(time.time())
     data['ct'] = thisTime
     data['rt'] = thisTime - lastTime
