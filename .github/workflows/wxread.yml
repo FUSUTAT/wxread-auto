@@ -59,7 +59,11 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
-          delay=$(( RANDOM % 2400 ))
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            delay=0
+          else
+            delay=$(( RANDOM % 2400 ))
+          fi
           echo "随机等待 ${delay} 秒（$(( delay / 60 )) 分钟）后开始"
           sleep $delay
           base=${BASE_NUM:-140}
