@@ -11,6 +11,7 @@ from config import (
     SERVERCHAN_SPT,
     TELEGRAM_BOT_TOKEN,
     TELEGRAM_CHAT_ID,
+    WECOM_WEBHOOK,
     WXPUSHER_SPT,
 )
 
@@ -111,6 +112,29 @@ class PushNotification:
         return False
 
 
+    def push_wecom(self, content, webhook, is_success):
+        """企业微信群机器人：免费、无需实名、不限条数"""
+        if not webhook:
+            logger.warning("未配置 WECOM_WEBHOOK，跳过企业微信推送。")
+            return False
+        title = f"微信读书 - {'成功' if is_success else '失败'}"
+        payload = {
+            "msgtype": "markdown",
+            "markdown": {"content": f"**{title}**\n{content}"},
+        }
+        for attempt in range(3):
+            try:
+                response = requests.post(webhook, json=payload, timeout=15)
+                response.raise_for_status()
+                logger.info("企业微信响应: %s", response.text)
+                return True
+            except requests.exceptions.RequestException as exc:
+                logger.error("企业微信推送失败: %s", exc)
+                if attempt < 2:
+                    time.sleep(5)
+        return False
+
+
 def push(content, method, is_success = True):
     notifier = PushNotification()
 
@@ -128,6 +152,8 @@ def push(content, method, is_success = True):
         return notifier.push_wxpusher(content, WXPUSHER_SPT)
     if method == "serverchan":
         return notifier.push_serverChan(content, SERVERCHAN_SPT, is_success)
+    if method == "wecom":
+        return notifier.push_wecom(content, WECOM_WEBHOOK, is_success)
 
-    logger.warning("无效的通知渠道 '%s'，已跳过推送。支持：pushplus、telegram、wxpusher、serverchan", method)
+    logger.warning("无效的通知渠道 '%s'，已跳过推送。支持：pushplus、telegram、wxpusher、serverchan、wecom", method)
     return False
