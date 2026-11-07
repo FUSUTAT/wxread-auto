@@ -13,7 +13,11 @@ on:
   workflow_dispatch:
     inputs:
       read_num:
-        description: '阅读次数（留空则走分时段随机排程；填数字则立刻单段执行该次数）'
+        description: '精确次数（填入则立刻单段执行这么多次）'
+        required: false
+        default: ''
+      total_min:
+        description: '立即补跑分钟数（填入则现在分 2 段执行这么多分钟，留空走正常排程）'
         required: false
         default: ''
 
@@ -72,9 +76,13 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
           manual="${{ github.event.inputs.read_num }}"
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "$manual" ]; then
-            echo "手动触发，单段执行 $manual 次（不等待随机排程）"
+          minutes="${{ github.event.inputs.total_min }}"
+          if [ -n "$manual" ]; then
+            echo "手动触发：单段执行 $manual 次"
             READ_NUM=$manual python main.py
+          elif [ -n "$minutes" ]; then
+            echo "手动触发：立即分 2 段执行约 $minutes 分钟"
+            python multi_run.py --now --total-min "$minutes" --segments 2
           else
             echo "分时段随机执行：06:00-10:00 窗口内 3~5 段，合计 70~80 分钟"
             python multi_run.py --start-hour 6 --end-hour 10
