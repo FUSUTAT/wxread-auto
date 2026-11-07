@@ -39,8 +39,11 @@ logging.basicConfig(
 log = logging.getLogger("multi")
 
 
-def split_requests(total, k, min_part=20):
+def split_requests(total, k, min_part=None):
     """把 total 次请求随机拆成 k 段，每段不少于 min_part 次。"""
+    if min_part is None:
+        # 总量很小时自动放宽下限，避免退化成单段
+        min_part = max(2, min(20, total // 4))
     k = max(1, min(k, total // min_part)) if total >= min_part else 1
     for _ in range(200):
         weights = [random.random() + 0.4 for _ in range(k)]
