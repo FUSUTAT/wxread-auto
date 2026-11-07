@@ -23,6 +23,8 @@ TELEGRAM_CHAT_ID = "" or os.getenv("TELEGRAM_CHAT_ID")
 WXPUSHER_SPT = "" or os.getenv("WXPUSHER_SPT")
 # SeverChan推送时需填
 SERVERCHAN_SPT = "" or os.getenv("SERVERCHAN_SPT")
+# 企业微信群机器人 webhook（免费、无需实名）
+WECOM_WEBHOOK = "" or os.getenv("WECOM_WEBHOOK")
 
 
 # read接口的bash命令，本地部署时可对应替换headers、cookies
