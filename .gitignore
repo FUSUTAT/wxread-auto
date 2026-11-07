@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+.venv/
+logs/
+wxread_curl.txt
+cookies_copy.db
+*.log
