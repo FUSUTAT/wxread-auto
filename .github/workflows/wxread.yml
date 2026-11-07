@@ -11,6 +11,11 @@ on:
     # 备用触发：北京时间每天 23:20，仅当当天主任务失败时补跑
     - cron: '20 15 * * *'
   workflow_dispatch:
+    inputs:
+      read_num:
+        description: '阅读次数（可留空；留空则按 READ_NUM 变量 ±10 随机）'
+        required: false
+        default: ''
 
 jobs:
   read:
@@ -67,7 +72,13 @@ jobs:
           echo "随机等待 ${delay} 秒（$(( delay / 60 )) 分钟）后开始"
           sleep $delay
           base=${BASE_NUM:-140}
-          num=$(( base - 10 + RANDOM % 21 ))
+          manual="${{ github.event.inputs.read_num }}"
+          if [ -n "$manual" ]; then
+            num=$manual
+          else
+            num=$(( base - 10 + RANDOM % 21 ))
+          fi
+          if [ "$num" -lt 1 ]; then num=1; fi
           echo "本次阅读 ${num} 次，约 $(( num / 2 )) 分钟"
           READ_NUM=$num python main.py
 
