@@ -148,3 +148,6 @@ def apply_curl_body(curl_command, base_data):
 
 
 data = apply_curl_body(curl_str, data)
+
+# 是否固定使用 curl 中的真实书籍/章节（True 更贴近真实阅读，避免书与章节随机配对导致时长不计入）
+USE_CURL_BOOK = bool(curl_str) and os.getenv('USE_CURL_BOOK', '1') != '0'
