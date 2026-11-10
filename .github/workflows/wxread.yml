@@ -8,7 +8,7 @@ on:
   schedule:
     # 北京时间每天 06:00 启动（UTC 22:00 前一天），由 multi_run.py 在 06:00-10:00 内分成 3~5 段随机执行
     - cron: '0 22 * * *'
-    # 备用触发：北京时间每天 11:00，仅当过去 14 小时内没有成功的定时任务时补跑
+    # 备用触发：北京时间每天 11:00，仅当近 14 小时没有成功的定时跑批时补跑
     - cron: '0 3 * * *'
   workflow_dispatch:
     inputs:
@@ -30,45 +30,32 @@ jobs:
       actions: read
       contents: read
     steps:
-      - name: 备用触发时先判断近 14 小时是否已成功
+      # checkout 放在最前面：判断步骤要用到仓库里的 ci_guard.py
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 安装依赖
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests
+
+      - name: 备用触发时判断近 14 小时是否已成功
         id: guard
         if: github.event.schedule == '0 3 * * *'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
+          GUARD_HOURS: '14'
         run: |
-          # 注意：本步骤在 checkout 之前执行，不能用 gh run list（它需要 .git 上下文，
-          # 否则报 "not a git repository" 并被兜底成 0，导致每天重复补跑）。
-          # 这里直接用 REST API + 显式仓库名，与工作目录无关。
-          since=$(date -u -d '14 hours ago' +%s)
-          resp=$(curl -sS --max-time 30 \
-            -H "Authorization: Bearer $GH_TOKEN" \
-            -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/$REPO/actions/workflows/wxread.yml/runs?status=success&per_page=40" || echo '{}')
-          ok=$(printf '%s' "$resp" | jq --argjson since "$since" \
-            '[.workflow_runs[]? | select(.event=="schedule" and ((.created_at|fromdateiso8601) > $since))] | length' 2>/dev/null || echo 0)
-          ok=${ok:-0}
-          echo "近 14 小时成功的定时跑批次数：$ok"
-          if [ "$ok" -gt 0 ]; then
-            echo "当天主任务已成功，跳过补跑"
+          # ci_guard.py 直接用 REST API 查询，不依赖 gh 的 git 上下文，也不用 jq
+          if python ci_guard.py; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
           else
             echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
-
-      - uses: actions/checkout@v4
-        if: github.event.schedule != '0 3 * * *' || steps.guard.outputs.skip != 'true'
-
-      - uses: actions/setup-python@v5
-        if: github.event.schedule != '0 3 * * *' || steps.guard.outputs.skip != 'true'
-        with:
-          python-version: '3.11'
-
-      - name: 安装依赖
-        if: github.event.schedule != '0 3 * * *' || steps.guard.outputs.skip != 'true'
-        run: |
-          python -m pip install --upgrade pip
-          pip install requests
 
       - name: 分时段随机执行阅读任务
         if: github.event.schedule != '0 3 * * *' || steps.guard.outputs.skip != 'true'
