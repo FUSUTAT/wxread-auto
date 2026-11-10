@@ -35,13 +35,21 @@ jobs:
         if: github.event.schedule == '0 3 * * *'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
         run: |
+          # 注意：本步骤在 checkout 之前执行，不能用 gh run list（它需要 .git 上下文，
+          # 否则报 "not a git repository" 并被兜底成 0，导致每天重复补跑）。
+          # 这里直接用 REST API + 显式仓库名，与工作目录无关。
           since=$(date -u -d '14 hours ago' +%s)
-          ok=$(gh run list --workflow=wxread.yml --status=success --limit=40 \
-               --json createdAt,event \
-               -q "[.[] | select(.event==\"schedule\" and ((.createdAt|fromdateiso8601) > $since))] | length" || echo 0)
-          echo "近 14 小时成功定时跑批次数：${ok:-0}"
-          if [ "${ok:-0}" -gt 0 ]; then
+          resp=$(curl -sS --max-time 30 \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/$REPO/actions/workflows/wxread.yml/runs?status=success&per_page=40" || echo '{}')
+          ok=$(printf '%s' "$resp" | jq --argjson since "$since" \
+            '[.workflow_runs[]? | select(.event=="schedule" and ((.created_at|fromdateiso8601) > $since))] | length' 2>/dev/null || echo 0)
+          ok=${ok:-0}
+          echo "近 14 小时成功的定时跑批次数：$ok"
+          if [ "$ok" -gt 0 ]; then
             echo "当天主任务已成功，跳过补跑"
             echo "skip=true" >> "$GITHUB_OUTPUT"
           else
